@@ -11,14 +11,16 @@
         .show-calendar-btn { padding: 15px 30px; background: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 1.2em; cursor: pointer; transition: background 0.3s; }
         .show-calendar-btn:hover { background: #1557b0; }
         .calendar-container { display: none; max-width: 1200px; margin: 20px auto; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); padding: 20px; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-height: 90vh; overflow: auto; display: flex; gap: 20px; }
-        .sidebar { width: 300px; padding: 20px; }
+        .sidebar { width: 300px; padding: 20px; position: sticky; top: 20px; height: fit-content; }
         .calendar-header { margin-bottom: 20px; color: #1a73e8; }
         .calendar-header h1 { margin: 0; font-size: 24px; font-weight: 500; }
         .event-form { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
         .event-form input, .event-form select { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #dadce0; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
         .event-form button { width: 100%; padding: 10px; background: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; transition: background 0.3s; }
         .event-form button:hover { background: #1557b0; }
-        .calendar-grid { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: #dadce0; border-radius: 4px; overflow: hidden; }
+        .calendar-wrapper { flex: 1; overflow-y: auto; max-height: 80vh; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: #dadce0; border-radius: 4px; margin-bottom: 20px; }
+        .month-header { grid-column: 1 / -1; background: #f1f3f4; padding: 15px; text-align: center; font-size: 18px; color: #1a73e8; }
         .day-header { background: #f1f3f4; padding: 10px; text-align: center; font-weight: 500; font-size: 12px; color: #5f6368; }
         .day { background: #fff; min-height: 100px; padding: 5px; position: relative; }
         .day-number { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; font-size: 12px; color: #5f6368; }
@@ -51,7 +53,6 @@
                     <input type="text" id="eventTitle" placeholder="Event Title" required>
                     <input type="datetime-local" id="eventDateTime" required>
                     <select id="eventType" required>
-                        <option value="">Select Event Type</option>
                         <option value="meeting">Meeting</option>
                         <option value="reminder">Reminder</option>
                         <option value="task">Task</option>
@@ -62,18 +63,19 @@
             </div>
         </div>
 
-        <div class="calendar-grid" id="calendarGrid"></div>
+        <div class="calendar-wrapper">
+            <div class="calendar-grid" id="calendarGrid"></div>
+        </div>
     </div>
 
     <script>
         const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        
+
         function showCalendar() {
             const container = document.getElementById('calendarContainer');
             container.style.display = 'flex';
             document.querySelector('.landing-page').style.display = 'none';
             renderCalendar();
-            loadEvents();
             document.getElementById('currentDate').textContent = new Date().toLocaleString();
         }
 
@@ -83,44 +85,87 @@
             document.querySelector('.landing-page').style.display = 'block';
         }
 
-        function renderCalendar() {
+        async function renderCalendar() {
             const grid = document.getElementById('calendarGrid');
             grid.innerHTML = '';
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = now.getMonth();
-            const firstDay = new Date(year, month, 1).getDay();
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-            DAYS.forEach(day => {
-                const header = document.createElement('div');
-                header.className = 'day-header';
-                header.textContent = day;
-                grid.appendChild(header);
-            });
-
-            for (let i = 0; i < firstDay; i++) {
-                grid.appendChild(document.createElement('div'));
+            let events = [];
+            try {
+                const response = await fetch('http://localhost:8001/api/events');
+                if (!response.ok) throw new Error('Failed to fetch events');
+                events = await response.json();
+            } catch (error) {
+                console.error('Error fetching events:', error);
             }
 
-            for (let day = 1; day <= daysInMonth; day++) {
-                const dayDiv = document.createElement('div');
-                dayDiv.className = 'day';
-                dayDiv.dataset.date = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                if (day === now.getDate() && month === now.getMonth()) {
-                    dayDiv.classList.add('today');
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth();
+
+            let minDate = new Date(currentYear, currentMonth, 1);
+            let maxDate = new Date(currentYear, currentMonth + 1, 0);
+
+            events.forEach(event => {
+                const eventDate = new Date(event.datetime);
+                if (eventDate < minDate) minDate = new Date(eventDate.getFullYear(), eventDate.getMonth(), 1);
+                if (eventDate > maxDate) maxDate = new Date(eventDate.getFullYear(), eventDate.getMonth() + 1, 0);
+            });
+
+            const startYear = minDate.getFullYear();
+            const startMonth = minDate.getMonth();
+            const endYear = maxDate.getFullYear();
+            const endMonth = maxDate.getMonth();
+
+            const totalMonths = (endYear - startYear) * 12 + (endMonth - startMonth) + 1;
+
+            for (let monthOffset = 0; monthOffset < totalMonths; monthOffset++) {
+                const year = startYear + Math.floor((startMonth + monthOffset) / 12);
+                const month = (startMonth + monthOffset) % 12;
+
+                const monthHeader = document.createElement('div');
+                monthHeader.className = 'month-header';
+                monthHeader.textContent = new Date(year, month).toLocaleString('default', { month: 'long', year: 'numeric' });
+                grid.appendChild(monthHeader);
+
+                DAYS.forEach(day => {
+                    const header = document.createElement('div');
+                    header.className = 'day-header';
+                    header.textContent = day;
+                    grid.appendChild(header);
+                });
+
+                const firstDay = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+                for (let i = 0; i < firstDay; i++) {
+                    grid.appendChild(document.createElement('div'));
                 }
-                const dayNumber = document.createElement('div');
-                dayNumber.className = 'day-number';
-                dayNumber.textContent = day;
-                dayDiv.appendChild(dayNumber);
-                grid.appendChild(dayDiv);
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dayDiv = document.createElement('div');
+                    dayDiv.className = 'day';
+                    dayDiv.dataset.date = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    if (day === now.getDate() && month === now.getMonth() && year === currentYear) {
+                        dayDiv.classList.add('today');
+                    }
+                    const dayNumber = document.createElement('div');
+                    dayNumber.className = 'day-number';
+                    dayNumber.textContent = day;
+                    dayDiv.appendChild(dayNumber);
+                    grid.appendChild(dayDiv);
+                }
+            }
+
+            await loadEvents();
+            const todayElement = document.querySelector('.today');
+            if (todayElement) {
+                todayElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }
 
         document.getElementById('eventForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             const event = {
                 email: document.getElementById('userEmail').value,
                 title: document.getElementById('eventTitle').value,
@@ -129,18 +174,25 @@
             };
 
             try {
-                const response = await fetch('http://localhost:3000/events', {
+                const response = await fetch('http://localhost:8001/api/events', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(event)
                 });
-                
-                if (response.ok) {
-                    loadEvents();
-                    document.getElementById('eventForm').reset();
-                    scheduleNotification(event);
-                    document.getElementById('emailStatus').textContent = 'Email reminder scheduled!';
-                    setTimeout(() => document.getElementById('emailStatus').textContent = '', 3000);
+
+                if (!response.ok) throw new Error('Failed to add event');
+
+                await renderCalendar();
+                document.getElementById('eventForm').reset();
+                scheduleNotification(event);
+                document.getElementById('emailStatus').textContent = 'Email reminder scheduled!';
+                setTimeout(() => document.getElementById('emailStatus').textContent = '', 3000);
+
+                const eventDate = new Date(event.datetime);
+                const dateString = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
+                const dayElement = document.querySelector(`.day[data-date="${dateString}"]`);
+                if (dayElement) {
+                    dayElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
             } catch (error) {
                 console.error('Error:', error);
@@ -150,29 +202,27 @@
 
         async function loadEvents() {
             try {
-                const response = await fetch('http://localhost:3000/events');
+                const response = await fetch('http://localhost:8001/api/events');
+                if (!response.ok) throw new Error('Failed to load events');
                 const events = await response.json();
                 const days = document.querySelectorAll('.day');
 
-                // Clear existing events
                 days.forEach(day => {
                     const existingEvents = day.querySelectorAll('.event');
                     existingEvents.forEach(e => e.remove());
                 });
 
-                const now = new Date();
-                events.filter(event => new Date(event.datetime) > now)
-                    .forEach(event => {
-                        const eventDate = new Date(event.datetime);
-                        const dateString = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
-                        const dayElement = document.querySelector(`.day[data-date="${dateString}"]`);
-                        if (dayElement) {
-                            const eventDiv = document.createElement('div');
-                            eventDiv.className = `event ${event.type}`;
-                            eventDiv.innerHTML = `${event.title}<br>${eventDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
-                            dayElement.appendChild(eventDiv);
-                        }
-                    });
+                events.forEach(event => {
+                    const eventDate = new Date(event.datetime);
+                    const dateString = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
+                    const dayElement = document.querySelector(`.day[data-date="${dateString}"]`);
+                    if (dayElement) {
+                        const eventDiv = document.createElement('div');
+                        eventDiv.className = `event ${event.type}`;
+                        eventDiv.innerHTML = `${event.title}<br>${eventDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                        dayElement.appendChild(eventDiv);
+                    }
+                });
             } catch (error) {
                 console.error('Error:', error);
             }
@@ -181,7 +231,7 @@
         function scheduleNotification(event) {
             const eventTime = new Date(event.datetime).getTime();
             const currentTime = new Date().getTime();
-            const timeDifference = eventTime - currentTime - 60000; // 1 minute before
+            const timeDifference = eventTime - currentTime - 60000;
 
             if (timeDifference > 0) {
                 setTimeout(() => {
